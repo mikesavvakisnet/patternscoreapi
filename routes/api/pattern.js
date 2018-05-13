@@ -1,7 +1,7 @@
 var express = require('express');
 var router = express.Router();
-var jwt = require('jsonwebtoken');
 var mysql = require('mysql');
+var request = require('request');
 
 var mysqlHost = process.env.MYSQLHOST;
 var mysqlUser = process.env.MYSQLUSER;
@@ -10,8 +10,6 @@ var mysqlDatabase = process.env.MYSQLDATABASE;
 
 var username = process.env.USERNAME;
 var password = process.env.PASSWORD;
-
-var secretJWT = process.env.SECRETJWT;
 
 var pool  = mysql.createPool({
     connectionLimit : 10,
@@ -23,17 +21,17 @@ var pool  = mysql.createPool({
 
 /* GET home page. */
 router.get('/', function (req, res, next) {
-    var token = req.headers['x-access-token'];
-    if (!token)
-        return res.status(401).send({auth: false, message: 'No token provided.'});
-    jwt.verify(token, secretJWT, function (err, decoded) {
-        if (err)
-            return res.status(500).send({auth: false, message: 'Failed to authenticate token.'});
-        pool.query('SELECT * FROM pattern', function (error, results, fields) {
-            if (error) throw error;
-            res.status(200).send(JSON.stringify(results));
-            return;
-        });
+    var auth = "Basic " + new Buffer(username + ":" + password).toString("base64");
+    request({
+        url:'http://icsd.dermanis.info:8066/api/rest/process/patternScore?',
+        headers : {
+            "Authorization" : auth
+        },
+        json:true
+
+    }, function (error, response, body) {
+
+        res.status(200).send({problem: false, body: body});
     });
 });
 
@@ -44,26 +42,17 @@ router.post('/', function (req, res, next) {
         res.status(400).send({problem: true});
         return
     }
-
-    pool.query('INSERT INTO pattern (pattern) VALUES(?)',pattern, function (error, results, fields) {
-        if (error) throw error;
-        res.status(200).send({problem: false});
-        return;
+    pattern = pattern.split("");
+    for(var i=pattern.length; i<9;i++){
+        pattern.push("?");
+    }
+    pool.query('DELETE FROM UserPattern;', function (error, results, fields) {
+        pool.query('INSERT INTO UserPattern (score,`1`,`2`,`3`,`4`,`5`,`6`,`7`,`8`,`9`) VALUES(?,?)',["?", pattern], function (error, results, fields) {
+            if (error) throw error;
+            res.status(200).send({problem: false});
+        });
     });
 
-});
-
-router.post('/auth', function (req, res, next) {
-    var user = req.body.user;
-    var pass = req.body.pass;
-    if (user === username && pass === password) {
-        var token = jwt.sign({}, secretJWT, {
-            expiresIn: 86400 // expires in 24 hours
-        });
-        res.status(200).send({auth: true, token: token});
-        return;
-    }
-    res.status(400).send({auth: false});
 });
 
 module.exports = router;
